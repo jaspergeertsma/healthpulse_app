@@ -5,6 +5,7 @@ import LoginPage from './components/LoginPage';
 import Dashboard from './components/Dashboard';
 import WeightPage from './components/WeightPage';
 import BodyCompositionPage from './components/BodyCompositionPage';
+import SleepPage from './components/SleepPage';
 import SettingsPage from './components/SettingsPage';
 import { useDashboard } from './hooks/useHealthData';
 
@@ -79,6 +80,13 @@ function AuthenticatedApp({ activeTab, setActiveTab, user, onSignOut }) {
                     <BodyCompositionPage
                         chartData={chartData}
                         stats={stats}
+                        data={data}
+                        loading={loading}
+                    />
+                );
+            case 'sleep':
+                return (
+                    <SleepPage
                         data={data}
                         loading={loading}
                     />

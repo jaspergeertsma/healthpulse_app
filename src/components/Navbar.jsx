@@ -12,6 +12,7 @@ import {
     LogOut,
     User,
     ChevronDown,
+    Moon,
 } from 'lucide-react';
 
 export default function Navbar({ activeTab, onTabChange, isDemo, onRefresh, loading, syncing, user, onSignOut }) {
@@ -33,6 +34,7 @@ export default function Navbar({ activeTab, onTabChange, isDemo, onRefresh, load
     const tabs = [
         { id: 'dashboard', label: 'Dashboard', icon: Activity },
         { id: 'weight', label: 'Gewicht', icon: BarChart3 },
+        { id: 'sleep', label: 'Slaap', icon: Moon },
         { id: 'body', label: 'Lichaamssamenstelling', icon: Heart },
     ];
 

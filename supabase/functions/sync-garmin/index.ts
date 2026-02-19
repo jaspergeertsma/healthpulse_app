@@ -326,6 +326,68 @@ async function fetchWeightData(accessToken, startDate, endDate) {
     return await res.json();
 }
 
+async function fetchSleepData(accessToken, startDate, endDate) {
+    // Garmin sleep daily summaries
+    var url = CONNECT_API + "/wellness-service/wellness/dailySleepData/" + endDate;
+    console.log("Fetching sleep data (latest):", url);
+
+    var res = await fetch(url, {
+        headers: {
+            "User-Agent": UA,
+            "Accept": "application/json",
+            "Authorization": "Bearer " + accessToken,
+        },
+    });
+
+    if (!res.ok) {
+        console.log("  Sleep single date failed (" + res.status + "), trying list endpoint...");
+    }
+
+    var latestSleep = res.ok ? await res.json() : null;
+
+    // Also fetch sleep list for date range
+    var listUrl = CONNECT_API + "/wellness-service/wellness/dailySleep?startDate=" + startDate + "&endDate=" + endDate;
+    console.log("Fetching sleep list:", listUrl);
+
+    var listRes = await fetch(listUrl, {
+        headers: {
+            "User-Agent": UA,
+            "Accept": "application/json",
+            "Authorization": "Bearer " + accessToken,
+        },
+    });
+
+    var sleepList = [];
+    if (listRes.ok) {
+        var listData = await listRes.json();
+        if (Array.isArray(listData)) {
+            sleepList = listData;
+        } else if (listData && listData.dailySleepDTOList) {
+            sleepList = listData.dailySleepDTOList;
+        } else if (listData && listData.sleepDTOList) {
+            sleepList = listData.sleepDTOList;
+        }
+    } else {
+        console.log("  Sleep list failed (" + listRes.status + ")");
+    }
+
+    // Merge latest into list if not already present
+    if (latestSleep && latestSleep.calendarDate) {
+        var found = false;
+        for (var i = 0; i < sleepList.length; i++) {
+            if (sleepList[i].calendarDate === latestSleep.calendarDate) {
+                sleepList[i] = latestSleep;
+                found = true;
+                break;
+            }
+        }
+        if (!found) sleepList.push(latestSleep);
+    }
+
+    console.log("Total sleep entries found:", sleepList.length);
+    return sleepList;
+}
+
 // ---- Main Handler ----
 
 Deno.serve(async function (req) {
@@ -484,18 +546,76 @@ Deno.serve(async function (req) {
             }
         }
 
+        // ---- Sync Sleep Data ----
+        var sleepSynced = 0;
+        try {
+            var sleepEntries = await fetchSleepData(oauth2.access_token, start, end);
+            console.log("Processing", sleepEntries.length, "sleep entries...");
+
+            if (sleepEntries.length > 0) {
+                var sleepRows = [];
+                for (var si = 0; si < sleepEntries.length; si++) {
+                    var s = sleepEntries[si];
+                    if (!s.calendarDate) continue;
+
+                    sleepRows.push({
+                        user_id: userId,
+                        calendar_date: s.calendarDate,
+                        sleep_start: s.sleepStartTimestampGMT ? new Date(s.sleepStartTimestampGMT).toISOString() : null,
+                        sleep_end: s.sleepEndTimestampGMT ? new Date(s.sleepEndTimestampGMT).toISOString() : null,
+                        duration_seconds: s.sleepTimeSeconds || s.durationInSeconds || null,
+                        deep_sleep_seconds: s.deepSleepSeconds || s.deepSleepDuration || 0,
+                        light_sleep_seconds: s.lightSleepSeconds || s.lightSleepDuration || 0,
+                        rem_sleep_seconds: s.remSleepSeconds || s.remSleepDuration || 0,
+                        awake_seconds: s.awakeSleepSeconds || s.awakeDuration || 0,
+                        sleep_score: s.sleepScores?.overall?.value || s.sleepScores?.totalScore || s.overallScore || null,
+                        quality_score: s.sleepScores?.qualityOfSleep?.qualifierKey ? null : (s.sleepScores?.qualityOfSleep?.value || null),
+                        duration_score: s.sleepScores?.sleepDuration?.value || null,
+                        recovery_score: s.sleepScores?.recoveryScore?.value || s.sleepScores?.revitalizationScore?.value || null,
+                        restfulness_score: s.sleepScores?.sleepRestfulness?.value || s.sleepScores?.restlessSleepScore?.value || null,
+                        sleep_need_seconds: s.sleepNeed || s.sleepNeedInSeconds || s.dailySleepDTO?.sleepNeed || null,
+                        sleep_debt_seconds: s.sleepDebt || s.sleepDebtInSeconds || null,
+                        body_battery_change: s.bodyBatteryChange || null,
+                        avg_spo2: s.averageSpO2Value || s.averageSPO2 || null,
+                        avg_respiration: s.averageRespirationValue || s.avgRespirationRate || null,
+                        avg_heart_rate: s.restingHeartRate || s.averageHeartRate || null,
+                        lowest_heart_rate: s.lowestHeartRate || null,
+                        avg_stress: s.averageStress || null,
+                        source: 'GARMIN',
+                        raw_data: s,
+                    });
+                }
+
+                if (sleepRows.length > 0) {
+                    console.log("Upserting", sleepRows.length, "sleep entries...");
+                    var sleepResult = await supabase
+                        .from("sleep_entries")
+                        .upsert(sleepRows, { onConflict: "user_id,calendar_date" });
+
+                    if (sleepResult.error) {
+                        console.error("Sleep DB error:", JSON.stringify(sleepResult.error));
+                    } else {
+                        sleepSynced = sleepRows.length;
+                    }
+                }
+            }
+        } catch (sleepErr) {
+            console.error("Sleep sync error (non-fatal):", sleepErr.message);
+        }
+
+        var totalSynced = entriesSynced + sleepSynced;
         var duration = Date.now() - startTime;
         await supabase.from("sync_log").insert({
             user_id: userId,
             status: "success",
-            entries_synced: entriesSynced,
+            entries_synced: totalSynced,
             duration_ms: duration,
         });
 
-        console.log("=== SUCCESS:", entriesSynced, "entries in", duration, "ms ===");
+        console.log("=== SUCCESS:", entriesSynced, "weight +", sleepSynced, "sleep entries in", duration, "ms ===");
 
         return new Response(
-            JSON.stringify({ success: true, entriesSynced: entriesSynced, durationMs: duration }),
+            JSON.stringify({ success: true, entriesSynced: entriesSynced, sleepSynced: sleepSynced, durationMs: duration }),
             { headers: Object.assign({}, corsHeaders, { "Content-Type": "application/json" }) }
         );
 

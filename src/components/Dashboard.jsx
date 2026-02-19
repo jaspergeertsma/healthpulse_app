@@ -24,6 +24,10 @@ import {
     Layout,
     Save,
     X,
+    Star,
+    Clock,
+    ChevronRight,
+    AlertCircle,
 } from 'lucide-react';
 import {
     StatCard,
@@ -44,6 +48,7 @@ export default function Dashboard({ data, stats, chartData, loading, syncing, on
     // Layout State
     const defaultLayout = [
         { id: 'fasting_sleep', width: 4 },
+        { id: 'sleep_coach', width: 4 },
         { id: 'goal_progress', width: 4 },
         { id: 'stats_row', width: 4 },
         { id: 'weight_chart', width: 4 },
@@ -453,9 +458,139 @@ export default function Dashboard({ data, stats, chartData, loading, syncing, on
         </div>
     );
 
+    const renderSleepCoach = () => {
+        const sleepEntries = data?.sleep || [];
+        const latestSleep = sleepEntries.length > 0 ? sleepEntries[sleepEntries.length - 1] : null;
+        const previousSleep = sleepEntries.length > 1 ? sleepEntries[sleepEntries.length - 2] : null;
+
+        const sleepNeed = latestSleep?.sleep_need_seconds;
+        const sleepDebt = latestSleep?.sleep_debt_seconds;
+        const lastScore = latestSleep?.sleep_score;
+        const lastDuration = latestSleep?.duration_seconds;
+        const previousScore = previousSleep?.sleep_score;
+
+        const formatDur = (seconds) => {
+            if (!seconds) return '—';
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            return `${h}u ${m}m`;
+        };
+
+        const getScoreColor = (s) => {
+            if (!s) return 'text-slate-500';
+            if (s >= 80) return 'text-emerald-400';
+            if (s >= 60) return 'text-blue-400';
+            if (s >= 40) return 'text-amber-400';
+            return 'text-rose-400';
+        };
+
+        const getScoreLabel = (s) => {
+            if (!s) return 'Geen data';
+            if (s >= 80) return 'Uitstekend';
+            if (s >= 60) return 'Goed';
+            if (s >= 40) return 'Matig';
+            return 'Slecht';
+        };
+
+        return (
+            <div className="glass-card p-5 border-l-4 border-l-indigo-500 bg-indigo-500/5">
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400">
+                            <Moon className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <h3 className="text-sm font-semibold text-slate-200">
+                                Garmin Slaapcoach
+                            </h3>
+                            <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">
+                                Aanbeveling voor komende nacht
+                            </p>
+                        </div>
+                    </div>
+                    {lastScore && (
+                        <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${getScoreColor(lastScore)} bg-slate-800/50`}>
+                            <Star className="w-3 h-3" />
+                            {lastScore}
+                        </div>
+                    )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Recommended sleep time */}
+                    <div className="p-4 rounded-xl bg-indigo-500/5 border border-indigo-500/20">
+                        <div className="flex items-center gap-2 mb-2">
+                            <Clock className="w-3.5 h-3.5 text-indigo-400" />
+                            <p className="text-[10px] uppercase tracking-wider text-indigo-400 font-bold">
+                                Aanbevolen slaaptijd
+                            </p>
+                        </div>
+                        <p className="text-2xl font-bold text-slate-100 tabular-nums">
+                            {sleepNeed ? formatDur(sleepNeed) : '—'}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-1">
+                            Volgens je Garmin slaapcoach
+                        </p>
+                    </div>
+
+                    {/* Last night score */}
+                    <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-700/30">
+                        <div className="flex items-center gap-2 mb-2">
+                            <Star className="w-3.5 h-3.5 text-blue-400" />
+                            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">
+                                Afgelopen nacht
+                            </p>
+                        </div>
+                        <div className="flex items-baseline gap-2">
+                            <p className={`text-2xl font-bold tabular-nums ${getScoreColor(lastScore)}`}>
+                                {lastScore ?? '—'}
+                            </p>
+                            <span className="text-xs text-slate-500">/100</span>
+                            {previousScore && lastScore && (
+                                <span className={`text-xs font-medium ${lastScore >= previousScore ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    {lastScore >= previousScore ? '↑' : '↓'} {Math.abs(lastScore - previousScore)}
+                                </span>
+                            )}
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">
+                            {lastDuration ? formatDur(lastDuration) : '—'} geslapen · {getScoreLabel(lastScore)}
+                        </p>
+                    </div>
+
+                    {/* Sleep debt */}
+                    <div className={`p-4 rounded-xl border ${sleepDebt && sleepDebt > 0
+                            ? 'bg-amber-500/5 border-amber-500/20'
+                            : 'bg-emerald-500/5 border-emerald-500/20'
+                        }`}>
+                        <div className="flex items-center gap-2 mb-2">
+                            <AlertCircle className={`w-3.5 h-3.5 ${sleepDebt && sleepDebt > 0 ? 'text-amber-400' : 'text-emerald-400'
+                                }`} />
+                            <p className={`text-[10px] uppercase tracking-wider font-bold ${sleepDebt && sleepDebt > 0 ? 'text-amber-400' : 'text-emerald-400'
+                                }`}>
+                                Slaapschuld
+                            </p>
+                        </div>
+                        <p className={`text-2xl font-bold tabular-nums ${sleepDebt && sleepDebt > 0 ? 'text-amber-300' : 'text-emerald-300'
+                            }`}>
+                            {sleepDebt != null ? formatDur(Math.abs(sleepDebt)) : '—'}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-1">
+                            {sleepDebt && sleepDebt > 0
+                                ? 'Slaaptekort opgebouwd'
+                                : sleepDebt != null
+                                    ? 'Slaapschuld ingelopen!'
+                                    : 'Sync om data te laden'}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     const renderWidgetContent = (id) => {
         switch (id) {
             case 'fasting_sleep': return renderFastingSleep();
+            case 'sleep_coach': return renderSleepCoach();
             case 'goal_progress': return renderGoalProgress();
             case 'stats_row': return renderStatsRow();
             case 'weight_chart': return renderWeightChart();

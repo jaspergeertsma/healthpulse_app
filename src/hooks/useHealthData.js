@@ -59,6 +59,31 @@ async function fetchLastSync() {
 }
 
 /**
+ * Fetch sleep entries from Supabase (RLS ensures user only sees own data)
+ */
+async function fetchSleepEntries(days = 0) {
+    let query = supabase
+        .from('sleep_entries')
+        .select('*')
+        .order('calendar_date', { ascending: true });
+
+    if (days > 0) {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - days);
+        const cutoff = cutoffDate.toISOString().split('T')[0];
+        query = query.gte('calendar_date', cutoff);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+        console.error('Sleep fetch error:', error);
+        return [];
+    }
+    return data || [];
+}
+
+/**
  * Transform Supabase weight entries to chart-ready format
  */
 function transformEntries(entries) {
@@ -123,11 +148,12 @@ export function useDashboard(days = 0) {
             const { data: { user: authUser } } = await supabase.auth.getUser();
             setUser(authUser);
 
-            const [entries, profile, syncInfo, habitData] = await Promise.all([
+            const [entries, profile, syncInfo, habitData, sleepData] = await Promise.all([
                 fetchWeightEntries(days),
                 fetchProfile(),
                 fetchLastSync(),
-                supabase.from('daily_habits').select('*').order('date', { ascending: false }).limit(30)
+                supabase.from('daily_habits').select('*').order('date', { ascending: false }).limit(30),
+                fetchSleepEntries(days),
             ]);
 
 
@@ -152,6 +178,7 @@ export function useDashboard(days = 0) {
                     }
                     : null,
                 habits: habitData.data || [],
+                sleep: sleepData || [],
                 fetchedAt: syncInfo?.synced_at || new Date().toISOString(),
                 entriesCount: entries.length,
             });
