@@ -116,9 +116,9 @@ export default function Navbar({ activeTab, onTabChange, isDemo, onRefresh, load
                             />
                         </button>
 
-                        {/* User Menu */}
+                        {/* User Menu - Desktop Only */}
                         {user && (
-                            <div className="relative" ref={dropdownRef}>
+                            <div className="relative hidden md:block" ref={dropdownRef}>
                                 <button
                                     onClick={() => setDropdownOpen(!dropdownOpen)}
                                     className={`flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-xl border transition-all duration-200 ${dropdownOpen

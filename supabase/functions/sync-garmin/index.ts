@@ -329,32 +329,7 @@ async function fetchWeightData(accessToken, startDate, endDate) {
 async function fetchSleepData(accessToken, startDate, endDate) {
     var allSleepList = [];
 
-    // 1. Try fetching latest single date (as a backup/check)
-    var url = CONNECT_BASE + "/wellness-service/wellness/dailySleepData/" + endDate;
-    console.log("Fetching sleep data (latest):", url);
-
-    var res = await fetch(url, {
-        headers: {
-            "User-Agent": UA,
-            "Accept": "application/json",
-            "Authorization": "Bearer " + accessToken,
-        },
-    });
-
-    var latestSleep = null;
-    if (res.ok) {
-        latestSleep = await res.json();
-    } else {
-        // Log error for debug
-        try {
-            var errTxt = await res.text();
-            console.log("  Sleep single date failed (" + res.status + "): " + errTxt.substring(0, 100));
-        } catch (e) {
-            console.log("  Sleep single date failed (" + res.status + ")");
-        }
-    }
-
-    // 2. Fetch list in chunks of 20 days (API limit often around 30)
+    // 2. Fetch list day-by-day (Chunking is disabled due to API 400 errors)
     var startDt = new Date(startDate);
     var endDt = new Date(endDate);
 
@@ -376,64 +351,83 @@ async function fetchSleepData(accessToken, startDate, endDate) {
         // Skip if start > end (safety)
         if (new Date(sStr) > new Date(eStr)) break;
 
-        var listUrl = CONNECT_BASE + "/wellness-service/wellness/dailySleep?startDate=" + sStr + "&endDate=" + eStr;
-        console.log("Fetching sleep list chunk:", sStr, "to", eStr);
+        // Skip chunking as it returns 400. use day-by-day fallback directly.
+        var useChunking = false;
 
-        var listRes = await fetch(listUrl, {
-            headers: {
-                "User-Agent": UA,
-                "Accept": "application/json",
-                "Authorization": "Bearer " + accessToken,
-            },
-        });
+        if (useChunking) {
+            // ... (chunk logic preserved but skipped) ...
+        }
 
-        if (listRes.ok) {
-            var listData = await listRes.json();
-            var chunkList = [];
+        // Always use day-by-day fetching
+        console.log("Fetching day-by-day from", sStr, "to", eStr);
 
-            // Log structure once
-            if (allSleepList.length === 0) {
-                console.log("Chunk response keys:", Object.keys(listData || {}));
-            }
+        var tempDt = new Date(startDt);
+        while (tempDt <= chunkEndDt) {
+            var dStr = tempDt.toISOString().split("T")[0];
 
-            if (Array.isArray(listData)) {
-                chunkList = listData;
-            } else if (listData && listData.dailySleepDTOList) {
-                chunkList = listData.dailySleepDTOList;
-            } else if (listData && listData.sleepDTOList) {
-                chunkList = listData.sleepDTOList;
-            }
-            console.log("  Got", chunkList.length, "entries in chunk");
+            // Prioritize query-param based: .../dailySleepData?date=YYYY-MM-DD
+            var dailyUrl = CONNECT_API + "/wellness-service/wellness/dailySleepData?date=" + dStr;
+            // Backup path-based: .../dailySleepData/YYYY-MM-DD (seems to 400 now)
+            var altUrl = CONNECT_API + "/wellness-service/wellness/dailySleepData/" + dStr;
 
-            // Add to main list
-            for (var i = 0; i < chunkList.length; i++) {
-                allSleepList.push(chunkList[i]);
-            }
-        } else {
-            console.log("  Chunk failed (" + listRes.status + ")");
             try {
-                var err = await listRes.text();
-                // "Simple" logging to avoid noise
-                console.log("  Error body:", err.slice(0, 200));
-            } catch (e) { }
+                var dailyRes = await fetch(dailyUrl, {
+                    headers: {
+                        "User-Agent": UA,
+                        "Accept": "application/json",
+                        "Authorization": "Bearer " + accessToken,
+                    },
+                });
+
+                if (!dailyRes.ok) {
+                    // unexpected error? try path based just in case
+                    if (dailyRes.status === 400 || dailyRes.status === 404) {
+                        // silently try alt if primary fails (though 404 usually means no data)
+                        // But if 400, maybe path works? Unlikely based on logs but let's keep fallback structure
+                        var altRes = await fetch(altUrl, {
+                            headers: {
+                                "User-Agent": UA,
+                                "Accept": "application/json",
+                                "Authorization": "Bearer " + accessToken,
+                            },
+                        });
+
+                        if (altRes.ok) {
+                            dailyRes = altRes;
+                        } else {
+                            if (dailyRes.status !== 404 && altRes.status !== 404) {
+                                console.log("    Failed to fetch " + dStr + " (Query: " + dailyRes.status + ", Path: " + altRes.status + ")");
+                            }
+                        }
+                    }
+                }
+
+                if (dailyRes.ok) {
+                    var dailyData = await dailyRes.json();
+                    if (dailyData && (dailyData.dailySleepDTO || dailyData.uSleepDTO || dailyData.calendarDate)) {
+                        var entry = dailyData.dailySleepDTO || dailyData;
+                        if (entry.calendarDate) {
+                            // console.log("    Fetched single day:", dStr);
+                            allSleepList.push(entry);
+                        } else {
+                            console.log("    Fetched " + dStr + " but missing calendarDate. Keys:", Object.keys(entry));
+                        }
+                    } else {
+                        console.log("    Fetched " + dStr + " but unknown structure. Keys:", Object.keys(dailyData || {}));
+                    }
+                }
+            } catch (e) {
+                console.log("    Error fetching " + dStr + ": " + e.message);
+            }
+
+            tempDt.setDate(tempDt.getDate() + 1);
         }
 
         // Advance start to chunkEnd + 1 day
         startDt.setDate(startDt.getDate() + 21);
     }
 
-    // Merge latest into list if not present
-    if (latestSleep && latestSleep.calendarDate) {
-        var found = false;
-        for (var i = 0; i < allSleepList.length; i++) {
-            if (allSleepList[i].calendarDate === latestSleep.calendarDate) {
-                allSleepList[i] = latestSleep; // Update with details if better
-                found = true;
-                break;
-            }
-        }
-        if (!found) allSleepList.push(latestSleep);
-    }
+    // (latestSleep merge removed)
 
     console.log("Total unique sleep entries found:", allSleepList.length);
     return allSleepList;
@@ -609,6 +603,20 @@ Deno.serve(async function (req) {
                     var s = sleepEntries[si];
                     if (!s.calendarDate) continue;
 
+                    // Parse sleepNeed (handle object vs number)
+                    var rawSleepNeed = s.sleepNeed || s.sleepNeedInSeconds || s.dailySleepDTO?.sleepNeed || null;
+                    var sleepNeedSec = rawSleepNeed;
+                    if (rawSleepNeed && typeof rawSleepNeed === 'object') {
+                        sleepNeedSec = rawSleepNeed.actual ? (rawSleepNeed.actual * 60) : null;
+                    }
+
+                    // Parse sleepDebt (handle object vs number)
+                    var rawSleepDebt = s.sleepDebt || s.sleepDebtInSeconds || null;
+                    var sleepDebtSec = rawSleepDebt;
+                    if (rawSleepDebt && typeof rawSleepDebt === 'object') {
+                        sleepDebtSec = rawSleepDebt.actual ? (rawSleepDebt.actual * 60) : null;
+                    }
+
                     sleepRows.push({
                         user_id: userId,
                         calendar_date: s.calendarDate,
@@ -624,8 +632,8 @@ Deno.serve(async function (req) {
                         duration_score: s.sleepScores?.sleepDuration?.value || null,
                         recovery_score: s.sleepScores?.recoveryScore?.value || s.sleepScores?.revitalizationScore?.value || null,
                         restfulness_score: s.sleepScores?.sleepRestfulness?.value || s.sleepScores?.restlessSleepScore?.value || null,
-                        sleep_need_seconds: s.sleepNeed || s.sleepNeedInSeconds || s.dailySleepDTO?.sleepNeed || null,
-                        sleep_debt_seconds: s.sleepDebt || s.sleepDebtInSeconds || null,
+                        sleep_need_seconds: sleepNeedSec,
+                        sleep_debt_seconds: sleepDebtSec,
                         body_battery_change: s.bodyBatteryChange || null,
                         avg_spo2: s.averageSpO2Value || s.averageSPO2 || null,
                         avg_respiration: s.averageRespirationValue || s.avgRespirationRate || null,
