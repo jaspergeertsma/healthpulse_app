@@ -360,15 +360,23 @@ async function fetchSleepData(accessToken, startDate, endDate) {
     var sleepList = [];
     if (listRes.ok) {
         var listData = await listRes.json();
+        console.log("Sleep List Response Keys:", Object.keys(listData || {}));
+
         if (Array.isArray(listData)) {
             sleepList = listData;
         } else if (listData && listData.dailySleepDTOList) {
             sleepList = listData.dailySleepDTOList;
         } else if (listData && listData.sleepDTOList) {
             sleepList = listData.sleepDTOList;
+        } else {
+            console.log("⚠️ Unknown sleep list structure. Body snippet:", JSON.stringify(listData).slice(0, 500));
         }
     } else {
         console.log("  Sleep list failed (" + listRes.status + ")");
+        try {
+            var err = await listRes.text();
+            console.log("  Error body:", err.slice(0, 200));
+        } catch (e) { }
     }
 
     // Merge latest into list if not already present
