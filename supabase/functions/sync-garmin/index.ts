@@ -327,7 +327,9 @@ async function fetchWeightData(accessToken, startDate, endDate) {
 }
 
 async function fetchSleepData(accessToken, startDate, endDate) {
-    // Garmin sleep daily summaries
+    var allSleepList = [];
+
+    // 1. Try fetching latest single date (as a backup/check)
     var url = CONNECT_API + "/wellness-service/wellness/dailySleepData/" + endDate;
     console.log("Fetching sleep data (latest):", url);
 
@@ -339,61 +341,102 @@ async function fetchSleepData(accessToken, startDate, endDate) {
         },
     });
 
-    if (!res.ok) {
-        console.log("  Sleep single date failed (" + res.status + "), trying list endpoint...");
-    }
-
-    var latestSleep = res.ok ? await res.json() : null;
-
-    // Also fetch sleep list for date range
-    var listUrl = CONNECT_API + "/wellness-service/wellness/dailySleep?startDate=" + startDate + "&endDate=" + endDate;
-    console.log("Fetching sleep list:", listUrl);
-
-    var listRes = await fetch(listUrl, {
-        headers: {
-            "User-Agent": UA,
-            "Accept": "application/json",
-            "Authorization": "Bearer " + accessToken,
-        },
-    });
-
-    var sleepList = [];
-    if (listRes.ok) {
-        var listData = await listRes.json();
-        console.log("Sleep List Response Keys:", Object.keys(listData || {}));
-
-        if (Array.isArray(listData)) {
-            sleepList = listData;
-        } else if (listData && listData.dailySleepDTOList) {
-            sleepList = listData.dailySleepDTOList;
-        } else if (listData && listData.sleepDTOList) {
-            sleepList = listData.sleepDTOList;
-        } else {
-            console.log("⚠️ Unknown sleep list structure. Body snippet:", JSON.stringify(listData).slice(0, 500));
-        }
+    var latestSleep = null;
+    if (res.ok) {
+        latestSleep = await res.json();
     } else {
-        console.log("  Sleep list failed (" + listRes.status + ")");
+        // Log error for debug
         try {
-            var err = await listRes.text();
-            console.log("  Error body:", err.slice(0, 200));
-        } catch (e) { }
+            var errTxt = await res.text();
+            console.log("  Sleep single date failed (" + res.status + "): " + errTxt.substring(0, 100));
+        } catch (e) {
+            console.log("  Sleep single date failed (" + res.status + ")");
+        }
     }
 
-    // Merge latest into list if not already present
+    // 2. Fetch list in chunks of 20 days (API limit often around 30)
+    var startDt = new Date(startDate);
+    var endDt = new Date(endDate);
+
+    // Safety check: ensure startDt is valid
+    if (isNaN(startDt.getTime())) startDt = new Date();
+    if (isNaN(endDt.getTime())) endDt = new Date();
+
+    console.log("Starting batch fetch from", startDt.toISOString().split("T")[0], "to", endDt.toISOString().split("T")[0]);
+
+    while (startDt <= endDt) {
+        // Calculate chunk end (start + 20 days)
+        var chunkEndDt = new Date(startDt);
+        chunkEndDt.setDate(chunkEndDt.getDate() + 20);
+        if (chunkEndDt > endDt) chunkEndDt = new Date(endDt);
+
+        var sStr = startDt.toISOString().split("T")[0];
+        var eStr = chunkEndDt.toISOString().split("T")[0];
+
+        // Skip if start > end (safety)
+        if (new Date(sStr) > new Date(eStr)) break;
+
+        var listUrl = CONNECT_API + "/wellness-service/wellness/dailySleep?startDate=" + sStr + "&endDate=" + eStr;
+        console.log("Fetching sleep list chunk:", sStr, "to", eStr);
+
+        var listRes = await fetch(listUrl, {
+            headers: {
+                "User-Agent": UA,
+                "Accept": "application/json",
+                "Authorization": "Bearer " + accessToken,
+            },
+        });
+
+        if (listRes.ok) {
+            var listData = await listRes.json();
+            var chunkList = [];
+
+            // Log structure once
+            if (allSleepList.length === 0) {
+                console.log("Chunk response keys:", Object.keys(listData || {}));
+            }
+
+            if (Array.isArray(listData)) {
+                chunkList = listData;
+            } else if (listData && listData.dailySleepDTOList) {
+                chunkList = listData.dailySleepDTOList;
+            } else if (listData && listData.sleepDTOList) {
+                chunkList = listData.sleepDTOList;
+            }
+            console.log("  Got", chunkList.length, "entries in chunk");
+
+            // Add to main list
+            for (var i = 0; i < chunkList.length; i++) {
+                allSleepList.push(chunkList[i]);
+            }
+        } else {
+            console.log("  Chunk failed (" + listRes.status + ")");
+            try {
+                var err = await listRes.text();
+                // "Simple" logging to avoid noise
+                console.log("  Error body:", err.slice(0, 200));
+            } catch (e) { }
+        }
+
+        // Advance start to chunkEnd + 1 day
+        startDt.setDate(startDt.getDate() + 21);
+    }
+
+    // Merge latest into list if not present
     if (latestSleep && latestSleep.calendarDate) {
         var found = false;
-        for (var i = 0; i < sleepList.length; i++) {
-            if (sleepList[i].calendarDate === latestSleep.calendarDate) {
-                sleepList[i] = latestSleep;
+        for (var i = 0; i < allSleepList.length; i++) {
+            if (allSleepList[i].calendarDate === latestSleep.calendarDate) {
+                allSleepList[i] = latestSleep; // Update with details if better
                 found = true;
                 break;
             }
         }
-        if (!found) sleepList.push(latestSleep);
+        if (!found) allSleepList.push(latestSleep);
     }
 
-    console.log("Total sleep entries found:", sleepList.length);
-    return sleepList;
+    console.log("Total unique sleep entries found:", allSleepList.length);
+    return allSleepList;
 }
 
 // ---- Main Handler ----
