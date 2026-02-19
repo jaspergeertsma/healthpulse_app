@@ -330,7 +330,7 @@ async function fetchSleepData(accessToken, startDate, endDate) {
     var allSleepList = [];
 
     // 1. Try fetching latest single date (as a backup/check)
-    var url = CONNECT_API + "/wellness-service/wellness/dailySleepData/" + endDate;
+    var url = CONNECT_BASE + "/wellness-service/wellness/dailySleepData/" + endDate;
     console.log("Fetching sleep data (latest):", url);
 
     var res = await fetch(url, {
@@ -376,7 +376,7 @@ async function fetchSleepData(accessToken, startDate, endDate) {
         // Skip if start > end (safety)
         if (new Date(sStr) > new Date(eStr)) break;
 
-        var listUrl = CONNECT_API + "/wellness-service/wellness/dailySleep?startDate=" + sStr + "&endDate=" + eStr;
+        var listUrl = CONNECT_BASE + "/wellness-service/wellness/dailySleep?startDate=" + sStr + "&endDate=" + eStr;
         console.log("Fetching sleep list chunk:", sStr, "to", eStr);
 
         var listRes = await fetch(listUrl, {
