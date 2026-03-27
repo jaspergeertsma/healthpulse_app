@@ -56,6 +56,26 @@ function mergeCookies(existing, newCookies) {
     return existing + "; " + newCookies;
 }
 
+// ---- Fetch with Retry (rate limit handling) ----
+
+async function fetchWithRetry(url, options, maxRetries) {
+    if (maxRetries === undefined) maxRetries = 3;
+    for (var attempt = 0; attempt <= maxRetries; attempt++) {
+        var res = await fetch(url, options);
+        if (res.status === 429 || res.status === 503) {
+            if (attempt === maxRetries) return res;
+            var retryAfter = res.headers.get("retry-after");
+            var waitMs = retryAfter
+                ? parseInt(retryAfter) * 1000
+                : Math.pow(2, attempt + 1) * 1000 + Math.random() * 1000;
+            console.log("Rate limited (" + res.status + "), waiting " + Math.round(waitMs) + "ms (attempt " + (attempt + 1) + "/" + maxRetries + ")");
+            await new Promise(function (r) { setTimeout(r, waitMs); });
+            continue;
+        }
+        return res;
+    }
+}
+
 // ---- OAuth 1.0 Signing ----
 
 function percentEncode(str) {
@@ -235,7 +255,7 @@ async function getOAuth1Token(ticket, consumerKey, consumerSecret) {
 
     var authHeader = await oauthSign("GET", url, null, consumerKey, consumerSecret, null, null);
 
-    var res = await fetch(url, {
+    var res = await fetchWithRetry(url, {
         headers: {
             "User-Agent": UA,
             "Authorization": authHeader,
@@ -270,7 +290,7 @@ async function exchangeOAuth1ForOAuth2(oauth1, consumerKey, consumerSecret) {
         oauth1.oauth_token, oauth1.oauth_token_secret
     );
 
-    var res = await fetch(url, {
+    var res = await fetchWithRetry(url, {
         method: "POST",
         headers: {
             "User-Agent": UA,
@@ -297,7 +317,7 @@ async function fetchWeightData(accessToken, startDate, endDate) {
     var url = CONNECT_API + "/weight-service/weight/range/" + startDate + "/" + endDate + "?includeAll=true";
     console.log("Fetching weight data:", url);
 
-    var res = await fetch(url, {
+    var res = await fetchWithRetry(url, {
         headers: {
             "User-Agent": UA,
             "Accept": "application/json",
@@ -309,7 +329,7 @@ async function fetchWeightData(accessToken, startDate, endDate) {
         // Try fallback: older dateRange endpoint
         console.log("  Range endpoint failed (" + res.status + "), trying dateRange...");
         var fallbackUrl = CONNECT_API + "/weight-service/weight/dateRange?startDate=" + startDate + "&endDate=" + endDate;
-        res = await fetch(fallbackUrl, {
+        res = await fetchWithRetry(fallbackUrl, {
             headers: {
                 "User-Agent": UA,
                 "Accept": "application/json",
@@ -371,7 +391,7 @@ async function fetchSleepData(accessToken, startDate, endDate) {
             var altUrl = CONNECT_API + "/wellness-service/wellness/dailySleepData/" + dStr;
 
             try {
-                var dailyRes = await fetch(dailyUrl, {
+                var dailyRes = await fetchWithRetry(dailyUrl, {
                     headers: {
                         "User-Agent": UA,
                         "Accept": "application/json",
@@ -384,7 +404,7 @@ async function fetchSleepData(accessToken, startDate, endDate) {
                     if (dailyRes.status === 400 || dailyRes.status === 404) {
                         // silently try alt if primary fails (though 404 usually means no data)
                         // But if 400, maybe path works? Unlikely based on logs but let's keep fallback structure
-                        var altRes = await fetch(altUrl, {
+                        var altRes = await fetchWithRetry(altUrl, {
                             headers: {
                                 "User-Agent": UA,
                                 "Accept": "application/json",
