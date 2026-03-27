@@ -59,7 +59,7 @@ function mergeCookies(existing, newCookies) {
 // ---- Fetch with Retry (rate limit handling) ----
 
 async function fetchWithRetry(url, options, maxRetries) {
-    if (maxRetries === undefined) maxRetries = 3;
+    if (maxRetries === undefined) maxRetries = 5;
     for (var attempt = 0; attempt <= maxRetries; attempt++) {
         var res = await fetch(url, options);
         if (res.status === 429 || res.status === 503) {
@@ -67,8 +67,8 @@ async function fetchWithRetry(url, options, maxRetries) {
             var retryAfter = res.headers.get("retry-after");
             var waitMs = retryAfter
                 ? parseInt(retryAfter) * 1000
-                : Math.pow(2, attempt + 1) * 1000 + Math.random() * 1000;
-            console.log("Rate limited (" + res.status + "), waiting " + Math.round(waitMs) + "ms (attempt " + (attempt + 1) + "/" + maxRetries + ")");
+                : (10 + Math.pow(3, attempt) * 5) * 1000 + Math.random() * 3000;
+            console.log("Rate limited (" + res.status + "), waiting " + Math.round(waitMs / 1000) + "s (attempt " + (attempt + 1) + "/" + maxRetries + ")");
             await new Promise(function (r) { setTimeout(r, waitMs); });
             continue;
         }
