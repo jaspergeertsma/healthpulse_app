@@ -204,7 +204,7 @@ async function garminLogin(email, password) {
         _csrf: csrf,
     });
 
-    var loginRes = await fetch(buildUrl(SSO_SIGNIN, SIGNIN_PARAMS), {
+    var loginRes = await fetchWithRetry(buildUrl(SSO_SIGNIN, SIGNIN_PARAMS), {
         method: "POST",
         headers: {
             "User-Agent": UA,
