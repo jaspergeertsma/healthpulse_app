@@ -652,7 +652,7 @@ export default function Dashboard({ data, stats, chartData, loading, syncing, on
                                 </button>
 
                                 {showSyncMenu && !syncing && (
-                                    <div className="absolute right-0 top-full mt-2 w-64 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-50 overflow-hidden">
+                                    <div className="absolute right-0 top-full mt-2 w-64 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-[9999] overflow-hidden">
                                         <button
                                             onClick={() => {
                                                 setShowSyncMenu(false);
