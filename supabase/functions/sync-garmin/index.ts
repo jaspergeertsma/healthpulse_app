@@ -221,11 +221,17 @@ async function garminLogin(email, password) {
     var titleMatch = loginBody.match(/<title>(.+?)<\/title>/);
     var title = titleMatch ? titleMatch[1] : "unknown";
     console.log("  Login title:", title);
+    console.log("  Login status:", loginRes.status);
+    console.log("  Login body length:", loginBody.length);
+    console.log("  Login body preview:", loginBody.substring(0, 500));
 
     if (title.includes("MFA")) {
         throw new Error("MFA is enabled on your Garmin account. Please disable it or use app-based auth.");
     }
-    if (title !== "Success") {
+
+    // Also check for ticket in body even if title is not "Success" (Garmin may have changed their page)
+    var hasTicket = loginBody.includes("ticket=");
+    if (title !== "Success" && !hasTicket) {
         throw new Error("Garmin login failed. Title: " + title);
     }
 
