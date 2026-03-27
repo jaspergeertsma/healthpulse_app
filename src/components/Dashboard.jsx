@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Scale,
     Percent,
@@ -28,6 +28,7 @@ import {
     Clock,
     ChevronRight,
     AlertCircle,
+    Upload,
 } from 'lucide-react';
 import {
     StatCard,
@@ -41,9 +42,20 @@ import {
 } from './ui';
 import { WeightChart, BMIGauge, Sparkline } from './charts';
 
-export default function Dashboard({ data, stats, chartData, loading, syncing, onSync, onLogHabit, updateProfile, user }) {
+export default function Dashboard({ data, stats, chartData, loading, syncing, onSync, onImportExport, onLogHabit, updateProfile, user }) {
     const [isEditing, setIsEditing] = useState(false);
     const [period, setPeriod] = useState(90);
+    const [showSyncMenu, setShowSyncMenu] = useState(false);
+    const [importProgress, setImportProgress] = useState(null);
+    const fileInputRef = React.useRef(null);
+
+    // Close sync menu when clicking outside
+    useEffect(() => {
+        if (!showSyncMenu) return;
+        const handleClick = () => setShowSyncMenu(false);
+        document.addEventListener('click', handleClick);
+        return () => document.removeEventListener('click', handleClick);
+    }, [showSyncMenu]);
 
     // Layout State
     const defaultLayout = [
@@ -628,14 +640,66 @@ export default function Dashboard({ data, stats, chartData, loading, syncing, on
                             <SecondaryButton onClick={() => setIsEditing(true)} icon={Layout}>
                                 Indeling wijzigen
                             </SecondaryButton>
-                            <button
-                                onClick={() => onSync && onSync(90)}
-                                disabled={syncing}
-                                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 ring-1 ring-blue-500/20 transition-all disabled:opacity-50"
-                            >
-                                {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudDownload className="w-4 h-4" />}
-                                {syncing ? '...' : 'Sync'}
-                            </button>
+                            <div className="relative">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setShowSyncMenu(!showSyncMenu); }}
+                                    disabled={syncing}
+                                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 ring-1 ring-blue-500/20 transition-all disabled:opacity-50"
+                                >
+                                    {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudDownload className="w-4 h-4" />}
+                                    {syncing ? (importProgress || '...') : 'Sync'}
+                                    {!syncing && <ChevronDown className="w-3 h-3" />}
+                                </button>
+
+                                {showSyncMenu && !syncing && (
+                                    <div className="absolute right-0 top-full mt-2 w-64 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-50 overflow-hidden">
+                                        <button
+                                            onClick={() => {
+                                                setShowSyncMenu(false);
+                                                onSync && onSync(90);
+                                            }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-200 hover:bg-slate-700/50 transition-colors text-left"
+                                        >
+                                            <CloudDownload className="w-4 h-4 text-blue-400 shrink-0" />
+                                            <div>
+                                                <div className="font-medium">Sync via Garmin</div>
+                                                <div className="text-xs text-slate-400">Direct ophalen via API</div>
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setShowSyncMenu(false);
+                                                fileInputRef.current?.click();
+                                            }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-200 hover:bg-slate-700/50 transition-colors text-left border-t border-slate-700"
+                                        >
+                                            <Upload className="w-4 h-4 text-emerald-400 shrink-0" />
+                                            <div>
+                                                <div className="font-medium">Upload Garmin Export</div>
+                                                <div className="text-xs text-slate-400">ZIP bestand van Garmin</div>
+                                            </div>
+                                        </button>
+                                    </div>
+                                )}
+
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept=".zip"
+                                    className="hidden"
+                                    onChange={async (e) => {
+                                        const file = e.target.files?.[0];
+                                        if (!file) return;
+                                        e.target.value = '';
+                                        try {
+                                            await onImportExport(file, setImportProgress);
+                                            setImportProgress(null);
+                                        } catch {
+                                            setImportProgress(null);
+                                        }
+                                    }}
+                                />
+                            </div>
                         </div>
                     )}
                 </div>

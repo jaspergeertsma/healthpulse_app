@@ -46,6 +46,7 @@ function AuthenticatedApp({ activeTab, setActiveTab, user, onSignOut }) {
         lastSync,
         refresh,
         sync,
+        importExport,
         updateProfile,
         logHabit,
     } = useDashboard(0);
@@ -61,6 +62,7 @@ function AuthenticatedApp({ activeTab, setActiveTab, user, onSignOut }) {
                         loading={loading}
                         syncing={syncing}
                         onSync={sync}
+                        onImportExport={importExport}
                         onLogHabit={logHabit}
                         updateProfile={updateProfile}
                         user={user}

@@ -99,6 +99,162 @@ function transformEntries(entries) {
 }
 
 /**
+ * Process a Garmin export ZIP file client-side.
+ * Extracts weight (userBioMetrics) and sleep data, then upserts to Supabase.
+ */
+export async function processGarminExport(file, onProgress) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Je moet ingelogd zijn om te importeren.');
+
+    if (onProgress) onProgress('ZIP bestand laden...');
+
+    // Dynamic import JSZip
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(file);
+
+    const userId = user.id;
+    let weightSynced = 0;
+    let sleepSynced = 0;
+
+    // ---- Process Weight Data from userBioMetrics.json ----
+    if (onProgress) onProgress('Gewichtsdata verwerken...');
+
+    const bioMetricsFile = Object.keys(zip.files).find(f =>
+        f.includes('userBioMetrics') && f.endsWith('.json')
+    );
+
+    if (bioMetricsFile) {
+        const bioMetricsJson = await zip.files[bioMetricsFile].async('string');
+        const bioMetrics = JSON.parse(bioMetricsJson);
+
+        // Build weight entries, keep latest per date
+        const entriesMap = {};
+        for (const entry of bioMetrics) {
+            if (!entry.weight?.weight || !entry.metaData?.calendarDate) continue;
+
+            const w = entry.weight;
+            const dateStr = entry.metaData.calendarDate.split('T')[0];
+
+            entriesMap[dateStr] = {
+                user_id: userId,
+                measured_at: dateStr,
+                weight: (w.weight / 1000).toFixed(2),
+                bmi: w.bmi || null,
+                body_fat: w.bodyFat || null,
+                muscle_mass: w.muscleMass ? (w.muscleMass / 1000).toFixed(2) : null,
+                bone_mass: w.boneMass ? (w.boneMass / 1000).toFixed(2) : null,
+                body_water: w.bodyWater || null,
+                source: w.sourceType || 'GARMIN_EXPORT',
+                raw_data: entry,
+            };
+        }
+
+        const weightEntries = Object.values(entriesMap);
+        if (weightEntries.length > 0) {
+            if (onProgress) onProgress(`${weightEntries.length} gewichtsmetingen opslaan...`);
+
+            // Upsert in batches of 500 to avoid payload limits
+            for (let i = 0; i < weightEntries.length; i += 500) {
+                const batch = weightEntries.slice(i, i + 500);
+                const { error } = await supabase
+                    .from('weight_entries')
+                    .upsert(batch, { onConflict: 'user_id,measured_at' });
+                if (error) throw new Error('Fout bij opslaan gewicht: ' + error.message);
+            }
+            weightSynced = weightEntries.length;
+        }
+    }
+
+    // ---- Process Sleep Data from *_sleepData.json files ----
+    if (onProgress) onProgress('Slaapdata verwerken...');
+
+    const sleepFiles = Object.keys(zip.files).filter(f =>
+        f.includes('sleepData') && f.endsWith('.json')
+    );
+
+    const allSleepRows = [];
+    for (const sleepFile of sleepFiles) {
+        const sleepJson = await zip.files[sleepFile].async('string');
+        const sleepEntries = JSON.parse(sleepJson);
+
+        for (const s of sleepEntries) {
+            if (!s.calendarDate) continue;
+
+            // Parse sleepNeed
+            let rawSleepNeed = s.sleepNeed || s.sleepNeedInSeconds || null;
+            let sleepNeedSec = rawSleepNeed;
+            if (rawSleepNeed && typeof rawSleepNeed === 'object') {
+                sleepNeedSec = rawSleepNeed.actual ? (rawSleepNeed.actual * 60) : null;
+            }
+
+            // Parse sleepDebt
+            let rawSleepDebt = s.sleepDebt || s.sleepDebtInSeconds || null;
+            let sleepDebtSec = rawSleepDebt;
+            if (rawSleepDebt && typeof rawSleepDebt === 'object') {
+                sleepDebtSec = rawSleepDebt.actual ? (rawSleepDebt.actual * 60) : null;
+            }
+
+            allSleepRows.push({
+                user_id: userId,
+                calendar_date: s.calendarDate,
+                sleep_start: s.sleepStartTimestampGMT ? new Date(s.sleepStartTimestampGMT).toISOString() : null,
+                sleep_end: s.sleepEndTimestampGMT ? new Date(s.sleepEndTimestampGMT).toISOString() : null,
+                duration_seconds: s.sleepTimeSeconds || s.durationInSeconds || null,
+                deep_sleep_seconds: s.deepSleepSeconds || s.deepSleepDuration || 0,
+                light_sleep_seconds: s.lightSleepSeconds || s.lightSleepDuration || 0,
+                rem_sleep_seconds: s.remSleepSeconds || s.remSleepDuration || 0,
+                awake_seconds: s.awakeSleepSeconds || s.awakeDuration || 0,
+                sleep_score: s.sleepScores?.overall?.value || s.sleepScores?.totalScore || s.overallScore || null,
+                quality_score: s.sleepScores?.qualityOfSleep?.qualifierKey ? null : (s.sleepScores?.qualityOfSleep?.value || null),
+                duration_score: s.sleepScores?.sleepDuration?.value || null,
+                recovery_score: s.sleepScores?.recoveryScore?.value || s.sleepScores?.revitalizationScore?.value || null,
+                restfulness_score: s.sleepScores?.sleepRestfulness?.value || s.sleepScores?.restlessSleepScore?.value || null,
+                sleep_need_seconds: sleepNeedSec,
+                sleep_debt_seconds: sleepDebtSec,
+                body_battery_change: s.bodyBatteryChange || null,
+                avg_spo2: s.averageSpO2Value || s.averageSPO2 || null,
+                avg_respiration: s.averageRespirationValue || s.avgRespirationRate || null,
+                avg_heart_rate: s.restingHeartRate || s.averageHeartRate || null,
+                lowest_heart_rate: s.lowestHeartRate || null,
+                avg_stress: s.averageStress || null,
+                source: 'GARMIN_EXPORT',
+                raw_data: s,
+            });
+        }
+    }
+
+    if (allSleepRows.length > 0) {
+        if (onProgress) onProgress(`${allSleepRows.length} slaapmetingen opslaan...`);
+
+        for (let i = 0; i < allSleepRows.length; i += 500) {
+            const batch = allSleepRows.slice(i, i + 500);
+            const { error } = await supabase
+                .from('sleep_entries')
+                .upsert(batch, { onConflict: 'user_id,calendar_date' });
+            if (error) throw new Error('Fout bij opslaan slaap: ' + error.message);
+        }
+        sleepSynced = allSleepRows.length;
+    }
+
+    // Log the import
+    await supabase.from('sync_log').insert({
+        user_id: userId,
+        status: 'success',
+        entries_synced: weightSynced + sleepSynced,
+        duration_ms: 0,
+    });
+
+    if (onProgress) onProgress('Import voltooid!');
+
+    return {
+        success: true,
+        weightSynced,
+        sleepSynced,
+        source: 'export',
+    };
+}
+
+/**
  * Trigger Garmin sync via Supabase Edge Function
  * Uses the current user's JWT for authentication
  */
@@ -244,6 +400,23 @@ export function useDashboard(days = 0) {
         }
     }, [fetchDashboard]);
 
+    const importExport = useCallback(async (file, onProgress) => {
+        setSyncing(true);
+        setError(null);
+        try {
+            const result = await processGarminExport(file, onProgress);
+            console.log('✅ Import completed:', result);
+            await fetchDashboard();
+            return result;
+        } catch (err) {
+            console.error('Import failed:', err);
+            setError(`Import mislukt: ${err.message}`);
+            throw err;
+        } finally {
+            setSyncing(false);
+        }
+    }, [fetchDashboard]);
+
     useEffect(() => {
         fetchDashboard();
     }, [fetchDashboard]);
@@ -259,6 +432,7 @@ export function useDashboard(days = 0) {
         lastSync,
         refresh: fetchDashboard,
         sync,
+        importExport,
         updateProfile,
         logHabit,
         user,
