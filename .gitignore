@@ -5,3 +5,4 @@ dist
 .env.local
 .garmin-cache.json
 .garmin-tokens.json
+resources/

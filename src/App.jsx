@@ -49,6 +49,7 @@ function AuthenticatedApp({ activeTab, setActiveTab, user, onSignOut }) {
         importExport,
         updateProfile,
         logHabit,
+        logInjection,
     } = useDashboard(0);
 
     const renderPage = () => {
@@ -64,6 +65,7 @@ function AuthenticatedApp({ activeTab, setActiveTab, user, onSignOut }) {
                         onSync={sync}
                         onImportExport={importExport}
                         onLogHabit={logHabit}
+                        onLogInjection={logInjection}
                         updateProfile={updateProfile}
                         user={user}
                     />

@@ -59,6 +59,23 @@ async function fetchLastSync() {
 }
 
 /**
+ * Fetch medication log from Supabase (RLS ensures user only sees own data)
+ */
+async function fetchMedicationLog() {
+    const { data, error } = await supabase
+        .from('medication_log')
+        .select('*')
+        .eq('medication', 'ozempic')
+        .order('date', { ascending: true });
+
+    if (error) {
+        console.error('Medication fetch error:', error);
+        return [];
+    }
+    return data || [];
+}
+
+/**
  * Fetch sleep entries from Supabase (RLS ensures user only sees own data)
  */
 async function fetchSleepEntries(days = 0) {
@@ -304,12 +321,13 @@ export function useDashboard(days = 0) {
             const { data: { user: authUser } } = await supabase.auth.getUser();
             setUser(authUser);
 
-            const [entries, profile, syncInfo, habitData, sleepData] = await Promise.all([
+            const [entries, profile, syncInfo, habitData, sleepData, medicationData] = await Promise.all([
                 fetchWeightEntries(days),
                 fetchProfile(),
                 fetchLastSync(),
                 supabase.from('daily_habits').select('*').order('date', { ascending: false }).limit(30),
                 fetchSleepEntries(days),
+                fetchMedicationLog(),
             ]);
 
 
@@ -330,11 +348,15 @@ export function useDashboard(days = 0) {
                         fastingStart: profile.fasting_start_time,
                         fastingEnd: profile.fasting_end_time,
                         sleepTarget: profile.sleep_target_time,
+                        ozempicStartDate: profile.ozempic_start_date || null,
+                        currentDoseMg: profile.current_dose_mg ? parseFloat(profile.current_dose_mg) : null,
+                        injectionDay: profile.injection_day != null ? profile.injection_day : null,
                         dashboardLayout: profile.dashboard_layout || null,
                     }
                     : null,
                 habits: habitData.data || [],
                 sleep: sleepData || [],
+                medications: medicationData || [],
                 fetchedAt: syncInfo?.synced_at || new Date().toISOString(),
                 entriesCount: entries.length,
             });
@@ -360,6 +382,22 @@ export function useDashboard(days = 0) {
                 ...updates,
                 updated_at: new Date().toISOString(),
             });
+
+        if (error) throw error;
+        await fetchDashboard();
+    }, [fetchDashboard]);
+
+    const logInjection = useCallback(async (injectionData) => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error('Not authenticated');
+
+        const { error } = await supabase
+            .from('medication_log')
+            .upsert({
+                user_id: user.id,
+                medication: 'ozempic',
+                ...injectionData,
+            }, { onConflict: 'user_id,date,medication' });
 
         if (error) throw error;
         await fetchDashboard();
@@ -435,6 +473,7 @@ export function useDashboard(days = 0) {
         importExport,
         updateProfile,
         logHabit,
+        logInjection,
         user,
     };
 }

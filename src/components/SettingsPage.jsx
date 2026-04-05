@@ -15,7 +15,9 @@ import {
     LogOut,
     User,
     Trophy,
+    Syringe,
 } from 'lucide-react';
+import { getDosePhase, DAY_LABELS } from '../lib/ozempic';
 import { SectionHeader, StatusBadge } from './ui';
 
 export default function SettingsPage({ isDemo, data, lastSync, syncing, onSync, updateProfile, user, onSignOut }) {
@@ -30,6 +32,9 @@ export default function SettingsPage({ isDemo, data, lastSync, syncing, onSync, 
     const [fastingStart, setFastingStart] = useState('20:00');
     const [fastingEnd, setFastingEnd] = useState('12:00');
     const [sleepTarget, setSleepTarget] = useState('22:15');
+    const [ozempicStartDate, setOzempicStartDate] = useState('');
+    const [currentDoseMg, setCurrentDoseMg] = useState('0.25');
+    const [injectionDay, setInjectionDay] = useState('1');
 
     // Sync state when data arrives
     useEffect(() => {
@@ -39,6 +44,9 @@ export default function SettingsPage({ isDemo, data, lastSync, syncing, onSync, 
             setFastingStart(data.profile.fastingStart?.substring(0, 5) || '20:00');
             setFastingEnd(data.profile.fastingEnd?.substring(0, 5) || '12:00');
             setSleepTarget(data.profile.sleepTarget?.substring(0, 5) || '22:15');
+            setOzempicStartDate(data.profile.ozempicStartDate || '');
+            setCurrentDoseMg(data.profile.currentDoseMg?.toString() || '0.25');
+            setInjectionDay(data.profile.injectionDay?.toString() || '1');
         }
     }, [data?.profile]);
 
@@ -63,6 +71,9 @@ export default function SettingsPage({ isDemo, data, lastSync, syncing, onSync, 
                 fasting_start_time: fastingStart,
                 fasting_end_time: fastingEnd,
                 sleep_target_time: sleepTarget,
+                ozempic_start_date: ozempicStartDate || null,
+                current_dose_mg: parseFloat(currentDoseMg) || null,
+                injection_day: parseInt(injectionDay),
             });
             setGoalStatus({ success: true, message: 'Doelen opgeslagen!' });
             setTimeout(() => setGoalStatus(null), 3000);
@@ -221,6 +232,78 @@ export default function SettingsPage({ isDemo, data, lastSync, syncing, onSync, 
                         )}
                     </div>
                 </form>
+            </div>
+
+            {/* Ozempic Configuratie */}
+            <div className="glass-card p-6 animate-fade-in animate-fade-in-delay-2">
+                <SectionHeader
+                    title="Ozempic Configuratie"
+                    subtitle="Stel je GLP-1 medicatie-instellingen in"
+                />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
+                    <div className="space-y-2">
+                        <label className="text-sm text-slate-400 block font-medium">
+                            Startdatum Ozempic
+                        </label>
+                        <input
+                            type="date"
+                            value={ozempicStartDate}
+                            onChange={(e) => setOzempicStartDate(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-3 text-slate-100 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500/50 outline-none transition-all"
+                        />
+                        <p className="text-[10px] text-slate-500">Wanneer ben je gestart met Ozempic?</p>
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-sm text-slate-400 block font-medium">
+                            Huidige dosis
+                        </label>
+                        <select
+                            value={currentDoseMg}
+                            onChange={(e) => setCurrentDoseMg(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-3 text-slate-100 focus:ring-2 focus:ring-teal-500/50 outline-none transition-all"
+                        >
+                            <option value="0.25">0.25 mg (Opstart)</option>
+                            <option value="0.5">0.50 mg (Opbouw)</option>
+                            <option value="1.0">1.0 mg (Therapeutisch)</option>
+                            <option value="1.5">1.5 mg</option>
+                            <option value="2.0">2.0 mg (Onderhoud)</option>
+                        </select>
+                        <p className="text-[10px] text-slate-500">Je huidige Ozempic dosis per injectie.</p>
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-sm text-slate-400 block font-medium">
+                            Injectiedag
+                        </label>
+                        <select
+                            value={injectionDay}
+                            onChange={(e) => setInjectionDay(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-3 text-slate-100 focus:ring-2 focus:ring-teal-500/50 outline-none transition-all"
+                        >
+                            {DAY_LABELS.map((label, i) => (
+                                <option key={i} value={i}>{label}</option>
+                            ))}
+                        </select>
+                        <p className="text-[10px] text-slate-500">Op welke dag geef je je wekelijkse injectie?</p>
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-sm text-slate-400 block font-medium">
+                            Huidige fase
+                        </label>
+                        <div className="flex items-center gap-3 bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-3">
+                            <Syringe className="w-5 h-5 text-teal-400" />
+                            <span className="text-slate-100">
+                                {ozempicStartDate
+                                    ? getDosePhase(ozempicStartDate)?.phaseName || 'Berekenen...'
+                                    : 'Stel startdatum in'}
+                            </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500">Automatisch berekend op basis van je startdatum.</p>
+                    </div>
+                </div>
             </div>
 
             {/* Sync Controls */}

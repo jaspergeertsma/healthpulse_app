@@ -29,6 +29,9 @@ import {
     ChevronRight,
     AlertCircle,
     Upload,
+    Syringe,
+    Activity,
+    ShieldAlert,
 } from 'lucide-react';
 import {
     StatCard,
@@ -41,12 +44,24 @@ import {
     PrimaryButton,
 } from './ui';
 import { WeightChart, BMIGauge, Sparkline } from './charts';
+import {
+    getDosePhase,
+    getDaysUntilNextInjection,
+    getRecommendedSite,
+    calculateWeightVelocityByPhase,
+    analyzeBodyComposition,
+    getOzempicWeightChange,
+    SITE_LABELS,
+    DAY_LABELS,
+} from '../lib/ozempic';
 
-export default function Dashboard({ data, stats, chartData, loading, syncing, onSync, onImportExport, onLogHabit, updateProfile, user }) {
+export default function Dashboard({ data, stats, chartData, loading, syncing, onSync, onImportExport, onLogHabit, onLogInjection, updateProfile, user }) {
     const [isEditing, setIsEditing] = useState(false);
     const [period, setPeriod] = useState(90);
     const [showSyncMenu, setShowSyncMenu] = useState(false);
     const [importProgress, setImportProgress] = useState(null);
+    const [selectedSite, setSelectedSite] = useState(null);
+    const [injectionLogging, setInjectionLogging] = useState(false);
     const fileInputRef = React.useRef(null);
 
     // Close sync menu when clicking outside
@@ -59,9 +74,12 @@ export default function Dashboard({ data, stats, chartData, loading, syncing, on
 
     // Layout State
     const defaultLayout = [
+        { id: 'ozempic_injection', width: 4 },
         { id: 'fasting_sleep', width: 4 },
         { id: 'sleep_coach', width: 4 },
         { id: 'goal_progress', width: 4 },
+        { id: 'weight_velocity', width: 2 },
+        { id: 'body_composition_insight', width: 2 },
         { id: 'stats_row', width: 4 },
         { id: 'weight_chart', width: 4 },
         { id: 'summary_row', width: 4 },
@@ -599,8 +617,269 @@ export default function Dashboard({ data, stats, chartData, loading, syncing, on
         );
     };
 
+    const renderOzempicInjection = () => {
+        const ozStart = profile?.ozempicStartDate;
+        if (!ozStart) {
+            return (
+                <div className="glass-card p-5 border-l-4 border-l-teal-500 bg-teal-500/5">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-teal-500/10 text-teal-400">
+                            <Syringe className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <h3 className="text-sm font-semibold text-slate-200">Ozempic Tracking</h3>
+                            <p className="text-xs text-slate-500 mt-0.5">Configureer je Ozempic-instellingen bij Instellingen om deze widget te activeren.</p>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const phase = getDosePhase(ozStart);
+        const daysUntil = getDaysUntilNextInjection(profile?.injectionDay);
+        const medications = data?.medications || [];
+        const todayStr = new Date().toLocaleDateString('en-CA');
+        const todayInjection = medications.find(m => m.date === todayStr);
+        const recommendedSite = getRecommendedSite(medications.slice(-3));
+        const currentDose = profile?.currentDoseMg || phase?.recommendedDoseMg || 0.25;
+
+        const handleLogInjection = async () => {
+            if (!onLogInjection) return;
+            setInjectionLogging(true);
+            try {
+                await onLogInjection({
+                    date: todayStr,
+                    dose_mg: currentDose,
+                    injection_site: selectedSite || recommendedSite,
+                });
+                setSelectedSite(null);
+            } catch (err) {
+                console.error('Injection log failed:', err);
+            } finally {
+                setInjectionLogging(false);
+            }
+        };
+
+        return (
+            <div className={`glass-card p-5 border-l-4 transition-all duration-500 ${daysUntil === 0 ? 'border-l-teal-500 bg-teal-500/5' : 'border-l-cyan-500 bg-cyan-500/5'}`}>
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-lg ${daysUntil === 0 ? 'bg-teal-500/10 text-teal-400' : 'bg-cyan-500/10 text-cyan-400'}`}>
+                            <Syringe className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <h3 className="text-sm font-semibold text-slate-200">
+                                {daysUntil === 0 ? 'Vandaag is injectiedag!' : `Nog ${daysUntil} ${daysUntil === 1 ? 'dag' : 'dagen'} tot injectie`}
+                            </h3>
+                            <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">
+                                {phase?.phaseName} · {DAY_LABELS[profile?.injectionDay]}
+                            </p>
+                        </div>
+                    </div>
+                    {todayInjection && (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold text-emerald-400 bg-emerald-500/10">
+                            <CheckCircle2 className="w-3 h-3" />
+                            Gelogd
+                        </div>
+                    )}
+                </div>
+
+                {daysUntil === 0 && !todayInjection && (
+                    <div className="space-y-3">
+                        <div>
+                            <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-2 font-bold">Injectielocatie</p>
+                            <div className="flex gap-2">
+                                {Object.entries(SITE_LABELS).map(([key, label]) => (
+                                    <button
+                                        key={key}
+                                        onClick={() => setSelectedSite(key)}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                                            (selectedSite || recommendedSite) === key
+                                                ? 'bg-teal-500 text-white'
+                                                : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                                        }`}
+                                    >
+                                        {label}
+                                        {key === recommendedSite && !selectedSite && (
+                                            <span className="ml-1 text-[9px]">●</span>
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <button
+                            onClick={handleLogInjection}
+                            disabled={injectionLogging}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-teal-500 text-white hover:bg-teal-600 transition-all disabled:opacity-50 shadow-lg shadow-teal-500/20"
+                        >
+                            {injectionLogging ? <Loader2 className="w-4 h-4 animate-spin" /> : <Syringe className="w-4 h-4" />}
+                            Injectie loggen ({currentDose}mg)
+                        </button>
+                    </div>
+                )}
+
+                {todayInjection && (
+                    <div className="flex items-center gap-4 text-sm text-slate-400">
+                        <span>{todayInjection.dose_mg}mg</span>
+                        {todayInjection.injection_site && <span>· {SITE_LABELS[todayInjection.injection_site] || todayInjection.injection_site}</span>}
+                    </div>
+                )}
+
+                {daysUntil > 0 && (
+                    <div className="space-y-2">
+                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div
+                                className="h-full bg-cyan-500 transition-all duration-1000"
+                                style={{ width: `${((7 - daysUntil) / 7) * 100}%` }}
+                            />
+                        </div>
+                        <p className="text-xs text-slate-500">
+                            Laatste injectie: {medications.length > 0 ? new Date(medications[medications.length - 1].date).toLocaleDateString('nl-NL') : 'Nog geen'}
+                        </p>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const renderWeightVelocity = () => {
+        const ozStart = profile?.ozempicStartDate;
+        if (!ozStart) return null;
+
+        const phases = calculateWeightVelocityByPhase(chartData, ozStart);
+        const totalChange = getOzempicWeightChange(chartData, ozStart);
+
+        if (!totalChange) return (
+            <div className="glass-card p-5 border-l-4 border-l-emerald-500 bg-emerald-500/5">
+                <div className="flex items-center gap-3 mb-2">
+                    <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+                        <Activity className="w-5 h-5" />
+                    </div>
+                    <h3 className="text-sm font-semibold text-slate-200">Gewichtssnelheid</h3>
+                </div>
+                <p className="text-xs text-slate-500">Nog niet genoeg data sinds Ozempic-start.</p>
+            </div>
+        );
+
+        const ozData = chartData.filter(d => new Date(d.date) >= new Date(ozStart));
+
+        return (
+            <div className="glass-card p-5 border-l-4 border-l-emerald-500 bg-emerald-500/5">
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+                        <Activity className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <h3 className="text-sm font-semibold text-slate-200">Gewichtssnelheid</h3>
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">Sinds Ozempic-start</p>
+                    </div>
+                </div>
+
+                <div className="flex items-baseline gap-2 mb-3">
+                    <span className={`text-2xl font-bold tabular-nums ${totalChange.change < 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {totalChange.change > 0 ? '+' : ''}{totalChange.change.toFixed(1)} kg
+                    </span>
+                    <span className="text-xs text-slate-500">in {totalChange.weeks} weken</span>
+                </div>
+
+                {ozData.length > 1 && <Sparkline data={ozData} dataKey="weight" color="#10b981" height={50} />}
+
+                {phases.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-slate-800/50 space-y-1.5">
+                        {phases.map((p, i) => (
+                            <div key={i} className={`flex items-center justify-between text-xs ${p.isCurrent ? 'text-slate-200' : 'text-slate-500'}`}>
+                                <span className="flex items-center gap-1.5">
+                                    {p.isCurrent && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+                                    {p.doseMg}mg
+                                </span>
+                                <span className={`font-bold tabular-nums ${p.kgPerWeek < 0 ? 'text-emerald-400' : p.kgPerWeek > 0 ? 'text-rose-400' : 'text-slate-500'}`}>
+                                    {p.kgPerWeek > 0 ? '+' : ''}{p.kgPerWeek.toFixed(2)} kg/week
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const renderBodyCompositionInsight = () => {
+        const ozStart = profile?.ozempicStartDate;
+        if (!ozStart) return null;
+
+        const analysis = analyzeBodyComposition(chartData, ozStart);
+        if (!analysis) return (
+            <div className="glass-card p-5 border-l-4 border-l-amber-500 bg-amber-500/5">
+                <div className="flex items-center gap-3 mb-2">
+                    <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400">
+                        <ShieldAlert className="w-5 h-5" />
+                    </div>
+                    <h3 className="text-sm font-semibold text-slate-200">Lichaamssamenstelling</h3>
+                </div>
+                <p className="text-xs text-slate-500">Nog niet genoeg compositiedata sinds Ozempic-start.</p>
+            </div>
+        );
+
+        const ozData = chartData.filter(d => new Date(d.date) >= new Date(ozStart) && d.muscleMass && d.bodyFat);
+
+        return (
+            <div className={`glass-card p-5 border-l-4 transition-all ${analysis.isMuscleLossWarning ? 'border-l-amber-500 bg-amber-500/5' : 'border-l-emerald-500 bg-emerald-500/5'}`}>
+                <div className="flex items-center gap-3 mb-4">
+                    <div className={`p-2 rounded-lg ${analysis.isMuscleLossWarning ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
+                        <ShieldAlert className="w-5 h-5" />
+                    </div>
+                    <div>
+                        <h3 className="text-sm font-semibold text-slate-200">Lichaamssamenstelling</h3>
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">Spier vs Vet ({analysis.weeks} weken)</p>
+                    </div>
+                </div>
+
+                {analysis.isMuscleLossWarning && (
+                    <div className="mb-3 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                        <p className="text-xs text-amber-400 font-medium">
+                            ⚠ Spiermassa daalt sneller dan vetmassa. Overweeg meer eiwitten en krachttraining.
+                        </p>
+                    </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div className="p-2.5 rounded-lg bg-slate-800/30">
+                        <p className="text-[10px] uppercase text-slate-500 mb-1 font-bold">Spiermassa</p>
+                        <p className={`text-lg font-bold tabular-nums ${analysis.muscleChange < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                            {analysis.muscleChange > 0 ? '+' : ''}{analysis.muscleChange.toFixed(1)} kg
+                        </p>
+                        <p className="text-[10px] text-slate-500">{analysis.lastMuscle.toFixed(1)} kg nu</p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-slate-800/30">
+                        <p className="text-[10px] uppercase text-slate-500 mb-1 font-bold">Vetpercentage</p>
+                        <p className={`text-lg font-bold tabular-nums ${analysis.fatChange < 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {analysis.fatChange > 0 ? '+' : ''}{analysis.fatChange.toFixed(1)}%
+                        </p>
+                        <p className="text-[10px] text-slate-500">{analysis.lastFat.toFixed(1)}% nu</p>
+                    </div>
+                </div>
+
+                {ozData.length > 1 && (
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <p className="text-[10px] uppercase text-slate-500 mb-1">Spiermassa</p>
+                            <Sparkline data={ozData} dataKey="muscleMass" color="#22c55e" height={35} />
+                        </div>
+                        <div>
+                            <p className="text-[10px] uppercase text-slate-500 mb-1">Vetpercentage</p>
+                            <Sparkline data={ozData} dataKey="bodyFat" color="#f59e0b" height={35} />
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
     const renderWidgetContent = (id) => {
         switch (id) {
+            case 'ozempic_injection': return renderOzempicInjection();
+            case 'weight_velocity': return renderWeightVelocity();
+            case 'body_composition_insight': return renderBodyCompositionInsight();
             case 'fasting_sleep': return renderFastingSleep();
             case 'sleep_coach': return renderSleepCoach();
             case 'goal_progress': return renderGoalProgress();
