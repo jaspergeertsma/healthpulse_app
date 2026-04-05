@@ -2,7 +2,7 @@
   "name": "Health Pulse",
   "short_name": "Health Pulse",
   "description": "Personal Health Tracker — Weight, Sleep & GLP-1 Tracking",
-  "start_url": "/",
+  "start_url": "/healthpulse_app/",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#0f172a",
