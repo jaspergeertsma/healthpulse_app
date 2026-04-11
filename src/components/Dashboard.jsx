@@ -85,12 +85,20 @@ export default function Dashboard({ data, stats, chartData, loading, syncing, on
         { id: 'summary_row', width: 4 },
     ];
 
-    const [layout, setLayout] = useState(data?.profile?.dashboardLayout || defaultLayout);
+    // Merge saved layout with default to ensure new widgets are included
+    const mergeLayout = (saved) => {
+        if (!saved) return defaultLayout;
+        const savedIds = new Set(saved.map(w => w.id));
+        const missing = defaultLayout.filter(w => !savedIds.has(w.id));
+        return [...saved, ...missing];
+    };
+
+    const [layout, setLayout] = useState(mergeLayout(data?.profile?.dashboardLayout));
 
     // Update local layout when data arrives
     React.useEffect(() => {
         if (data?.profile?.dashboardLayout) {
-            setLayout(data.profile.dashboardLayout);
+            setLayout(mergeLayout(data.profile.dashboardLayout));
         }
     }, [data?.profile?.dashboardLayout]);
 
