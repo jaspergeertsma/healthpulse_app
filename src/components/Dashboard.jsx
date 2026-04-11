@@ -643,6 +643,14 @@ export default function Dashboard({ data, stats, chartData, loading, syncing, on
         const recommendedSite = getRecommendedSite(medications.slice(-3));
         const currentDose = profile?.currentDoseMg || phase?.recommendedDoseMg || 0.25;
 
+        // Calculate days since last injection to detect "late"
+        const lastInjection = medications.length > 0 ? medications[medications.length - 1] : null;
+        const daysSinceLast = lastInjection
+            ? Math.floor((new Date(todayStr) - new Date(lastInjection.date)) / (1000 * 60 * 60 * 24))
+            : null;
+        const isLate = daysSinceLast !== null && daysSinceLast > 7;
+        const daysLate = isLate ? daysSinceLast - 7 : 0;
+
         const handleLogInjection = async () => {
             if (!onLogInjection) return;
             setInjectionLogging(true);
@@ -684,8 +692,21 @@ export default function Dashboard({ data, stats, chartData, loading, syncing, on
                     )}
                 </div>
 
-                {daysUntil === 0 && !todayInjection && (
+                {todayInjection && (
+                    <div className="flex items-center gap-4 text-sm text-slate-400">
+                        <span>{todayInjection.dose_mg}mg</span>
+                        {todayInjection.injection_site && <span>· {SITE_LABELS[todayInjection.injection_site] || todayInjection.injection_site}</span>}
+                    </div>
+                )}
+
+                {!todayInjection && (
                     <div className="space-y-3">
+                        {isLate && (
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-500/10 text-rose-400 text-xs font-medium">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                {daysLate} {daysLate === 1 ? 'dag' : 'dagen'} te laat
+                            </div>
+                        )}
                         <div>
                             <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-2 font-bold">Injectielocatie</p>
                             <div className="flex gap-2">
@@ -710,7 +731,17 @@ export default function Dashboard({ data, stats, chartData, loading, syncing, on
                         <button
                             onClick={handleLogInjection}
                             disabled={injectionLogging}
-                            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-teal-500 text-white hover:bg-teal-600 transition-all disabled:opacity-50 shadow-lg shadow-teal-500/20"
+                            title={daysUntil === 0
+                                ? 'Vandaag is injectiedag!'
+                                : isLate
+                                    ? `${daysLate} ${daysLate === 1 ? 'dag' : 'dagen'} te laat — log alsnog je injectie`
+                                    : `Nog ${daysUntil} ${daysUntil === 1 ? 'dag' : 'dagen'} tot volgende injectiedag`
+                            }
+                            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 shadow-lg ${
+                                daysUntil === 0 || isLate
+                                    ? 'bg-teal-500 text-white hover:bg-teal-600 shadow-teal-500/20'
+                                    : 'bg-slate-700 text-slate-200 hover:bg-slate-600 shadow-slate-700/20'
+                            }`}
                         >
                             {injectionLogging ? <Loader2 className="w-4 h-4 animate-spin" /> : <Syringe className="w-4 h-4" />}
                             Injectie loggen ({currentDose}mg)
@@ -718,26 +749,17 @@ export default function Dashboard({ data, stats, chartData, loading, syncing, on
                     </div>
                 )}
 
-                {todayInjection && (
-                    <div className="flex items-center gap-4 text-sm text-slate-400">
-                        <span>{todayInjection.dose_mg}mg</span>
-                        {todayInjection.injection_site && <span>· {SITE_LABELS[todayInjection.injection_site] || todayInjection.injection_site}</span>}
+                <div className="space-y-2 mt-3">
+                    <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                            className={`h-full transition-all duration-1000 ${isLate ? 'bg-rose-500' : 'bg-cyan-500'}`}
+                            style={{ width: `${Math.min(((7 - daysUntil) / 7) * 100, 100)}%` }}
+                        />
                     </div>
-                )}
-
-                {daysUntil > 0 && (
-                    <div className="space-y-2">
-                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                            <div
-                                className="h-full bg-cyan-500 transition-all duration-1000"
-                                style={{ width: `${((7 - daysUntil) / 7) * 100}%` }}
-                            />
-                        </div>
-                        <p className="text-xs text-slate-500">
-                            Laatste injectie: {medications.length > 0 ? new Date(medications[medications.length - 1].date).toLocaleDateString('nl-NL') : 'Nog geen'}
-                        </p>
-                    </div>
-                )}
+                    <p className="text-xs text-slate-500">
+                        Laatste injectie: {lastInjection ? new Date(lastInjection.date).toLocaleDateString('nl-NL') : 'Nog geen'}
+                    </p>
+                </div>
             </div>
         );
     };
