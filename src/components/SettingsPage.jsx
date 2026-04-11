@@ -135,6 +135,7 @@ export default function SettingsPage({ isDemo, data, lastSync, syncing, onSync, 
                 </div>
             </div>
 
+            <form onSubmit={handleUpdateGoals} className="space-y-8">
             {/* Lichaamsdoelen */}
             <div className="glass-card p-6 animate-fade-in animate-fade-in-delay-1">
                 <SectionHeader
@@ -142,7 +143,6 @@ export default function SettingsPage({ isDemo, data, lastSync, syncing, onSync, 
                     subtitle="Stel je streefgewicht en startpunt in voor betere tracking"
                 />
 
-                <form onSubmit={handleUpdateGoals} className="space-y-6">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                         <div className="space-y-2">
                             <label className="text-sm text-slate-400 block font-medium">
@@ -213,25 +213,6 @@ export default function SettingsPage({ isDemo, data, lastSync, syncing, onSync, 
                             <p className="text-[10px] text-slate-500">Je streeftijd om in bed te liggen.</p>
                         </div>
                     </div>
-
-                    <div className="flex items-center gap-4">
-                        <button
-                            type="submit"
-                            disabled={goalSaving}
-                            className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold bg-blue-500 text-white hover:bg-blue-600 transition-all duration-200 disabled:opacity-50 shadow-lg shadow-blue-500/20"
-                        >
-                            {goalSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trophy className="w-4 h-4" />}
-                            Doelen opslaan
-                        </button>
-
-                        {goalStatus && (
-                            <span className={`text-sm font-medium flex items-center gap-1.5 ${goalStatus.success ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                {goalStatus.success ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-                                {goalStatus.message}
-                            </span>
-                        )}
-                    </div>
-                </form>
             </div>
 
             {/* Ozempic Configuratie */}
@@ -241,7 +222,7 @@ export default function SettingsPage({ isDemo, data, lastSync, syncing, onSync, 
                     subtitle="Stel je GLP-1 medicatie-instellingen in"
                 />
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div className="space-y-2">
                         <label className="text-sm text-slate-400 block font-medium">
                             Startdatum Ozempic
@@ -305,6 +286,25 @@ export default function SettingsPage({ isDemo, data, lastSync, syncing, onSync, 
                     </div>
                 </div>
             </div>
+
+            <div className="flex items-center gap-4">
+                <button
+                    type="submit"
+                    disabled={goalSaving}
+                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold bg-blue-500 text-white hover:bg-blue-600 transition-all duration-200 disabled:opacity-50 shadow-lg shadow-blue-500/20"
+                >
+                    {goalSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trophy className="w-4 h-4" />}
+                    Instellingen opslaan
+                </button>
+
+                {goalStatus && (
+                    <span className={`text-sm font-medium flex items-center gap-1.5 ${goalStatus.success ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {goalStatus.success ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                        {goalStatus.message}
+                    </span>
+                )}
+            </div>
+            </form>
 
             {/* Sync Controls */}
             <div className="glass-card p-6 animate-fade-in animate-fade-in-delay-2">
